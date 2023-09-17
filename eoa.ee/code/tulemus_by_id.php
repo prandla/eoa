@@ -1,23 +1,30 @@
 <?php namespace tul_by_id {
 
-function get_title($conn, $id): string {
+function get_title($conn, $id): array {
     $sql = "SELECT subcontest.name AS subcontest_name,
-        contest.name AS contest_name, tasks_link FROM subcontest
+        contest.name AS contest_name, tasks_link, description, age_group.name AS group_name
+        FROM subcontest
         LEFT JOIN contest ON subcontest.contest_id = contest.id
+        LEFT JOIN age_group ON subcontest.age_group_id = age_group.id
         WHERE subcontest.id=".$id.";";
-	$result = $conn->query($sql);
+    $result = $conn->query($sql);
+    $footer = "";
 	if ($result->num_rows == 1) {
         $row = $result->fetch_assoc();
         $out = "<center><h1>".$row["contest_name"]."<br>".$row["subcontest_name"]."</h1>";
+        $title = $row["contest_name"] . " - " . $row["group_name"];
         if(!empty($row["tasks_link"])){
             $out .= "<h2><a href='".$row["tasks_link"]."'>Ülesanded</a></h2>";
         }
+        if(!empty($row["description"])) {
+            $footer .= "<p>".htmlspecialchars($row["description"])."</p>";
+        }
 	} else {
-        $out = "<center><h1>DATA ERROR</h1>";
+        return ["found" => false];
     }
 
 	$out .= '<div style="overflow-x:auto;"><table class="sortable">';
-	return $out;
+	return ["found" => true, "title" => $title, "html" => $out, "footer" => $footer];
 }
 
 function get_columns($conn, $id): array {
@@ -58,6 +65,7 @@ function get_contestant_info($conn, $id): array {
 function get_results($conn, $ids): array {
 	$entries = array();
     $idsString = implode(", ", $ids);
+    if($idsString == "") return array();
     $sql = "SELECT * FROM contestant_field
         WHERE task_id IN (".$idsString.")
         ORDER BY FIELD(task_id, ".$idsString.");";
@@ -94,13 +102,18 @@ function has_content($objects, $col): bool {
     return false;
 }
 
-function tulemus($conn, $id): string {
+function tulemus($conn, $id): array {
 	
-	$out = get_title($conn, $id);
-	$columns = get_columns($conn, $id);
-    if (count($columns) == 0) {
-        die("<h1>404</h1><div>Lehte ei leitud</div>");
+    $out = get_title($conn, $id);
+    if(!$out["found"]) {
+        return array("content" => "<h1>404</h1><div>Lehte ei leitud</div>",
+            "status" => 404,
+            "title" => "404 - EOA");
     }
+    $title = $out["title"];
+    $footer = $out["footer"];
+    $out = $out["html"];
+	$columns = get_columns($conn, $id);
 
     $contestantInfoObjects = get_contestant_info($conn, $id);
     $ageGroupHasContent = has_content($contestantInfoObjects, "age_group_name");
@@ -154,9 +167,11 @@ function tulemus($conn, $id): string {
 
     }
 
-	$out .= "</table></div></center>";
+	$out .= "</table></div>" . $footer . "</center>";
 	
-	return $out;
+	return array("title" => $title." - EOA",
+                    "content" => $out,
+                    "status" => 200);
 
 }
 
