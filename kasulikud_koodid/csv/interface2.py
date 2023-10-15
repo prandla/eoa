@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter.filedialog import askopenfilename
 from tkinter import messagebox as tkmsg
+from idlelib.tooltip import Hovertip
 import re
 import csv
 import copy
@@ -53,8 +54,8 @@ inferContest = {
         {"pattern": "10k", "value": "10,10,10"},
         {"pattern": "11k", "value": "11,11,11"},
         {"pattern": "12k", "value": "12,12,12"},
-        {"pattern": "(^|[-_ ])g($|[-_.])", "value": "gümnaasium,10,12"},
-        {"pattern": "(^|[-_ ])pk?($|[-_.])", "value": "põhikool,8,9"},
+        {"pattern": "(^|[-_ ])g(ymn)?($|[-_.])", "value": "gümnaasium,10,12"},
+        {"pattern": "(^|[-_ ])(pk?|pohikool)($|[-_.])", "value": "põhikool,8,9"},
         {"pattern": "(^|[-_ ])v($|[-_.])", "value": "vanem,11,12"},
         {"pattern": "(^|[-_ ])n($|[-_.])", "value": "noorem,9,10"},
     ]
@@ -319,53 +320,66 @@ def importTable(*_):
         for field in contestFields
         if field["name"] not in subcontestNames
     }
-    subcontest = {
-        field["name"]: field["entry"].get()
-        for field in contestFields
-        if field["name"] in subcontestNames
-    }
-    subcontest["name"] = subcontest["subcontest_name"]
-    del subcontest["subcontest_name"]
-    subcontest["class_range_name"], *subcontest["class_range"] = re.split(r"[ ,]", subcontest["class_range"])
-    contest["subcontests"] = [subcontest]
+    subcontests = []
+    contest['subcontests'] = []
+    if splitClass.get():
+        subcontests = {row[coli["class"]].split(",")[0] for row in list(getGrid())[1:]}
+        print(subcontests)
+    else:
+        subcontests = [None]
+    for subc_class in subcontests:
+        subcontest = {
+            field["name"]: field["entry"].get().replace("$CLASS", subc_class or "")
+            for field in contestFields
+            if field["name"] in subcontestNames
+        }
+        subcontest["name"] = subcontest["subcontest_name"]
+        del subcontest["subcontest_name"]
+        subcontest["class_range_name"], *subcontest["class_range"] = re.split(r"[ ,]", subcontest["class_range"])
+        contest["subcontests"].append(subcontest)
 
-    grid = getGrid()
-    rows = iter(grid)
-    header = next(rows)
-    subcontest["columns"] = [field for i,field in enumerate(header) if i not in sc or sc[i] == "total"]
-    subcontest["contestants"] = []
-    for row in rows:
-        contestant = {"fields": []}
-        for ci, field in enumerate(row):
-            if ci not in sc or sc[ci] == "total":
-                contestant["fields"].append(field.strip())
+        grid = getGrid()
+        rows = iter(grid)
+        header = next(rows)
+        subcontest["columns"] = [field for i,field in enumerate(header) if i not in sc or sc[i] == "total"]
+        subcontest["contestants"] = []
+        for row in rows:
+            contestant = {"fields": []}
+            for ci, field in enumerate(row):
+                if ci not in sc or sc[ci] == "total":
+                    contestant["fields"].append(field.strip())
 
-        contestant["instructors"] = ([] if coli["instructors"] is None else
-                                     [x.strip() for x in re.split(r"[|,/]+", row[coli["instructors"]])
-                                      if x.strip() != ""])
-        contestant["placement"] = re.sub(r"[. ]", "", row[coli["placement"]])
-        contestant["class"] = None if coli["class"] is None else row[coli["class"]].strip()
-        contestant["school"] = None if coli["school"] is None else row[coli["school"]].strip()
+            contestant["instructors"] = ([] if coli["instructors"] is None else
+                                         [x.strip() for x in re.split(r"[|,/]+", row[coli["instructors"]])
+                                          if x.strip() != ""])
+            contestant["placement"] = re.sub(r"[. ]", "", row[coli["placement"]])
+            contestant["class"] = None if coli["class"] is None else row[coli["class"]].strip()
+            if subc_class and contestant["class"] != subc_class:
+                if contestant["class"].startswith(subc_class + ","):
+                    contestant["class"] = contestant["class"].removeprefix(subc_class + ",")
+                else:
+                    continue
+            contestant["school"] = None if coli["school"] is None else row[coli["school"]].strip()
 
-        # Name
-        if haveName:
-            nameParts = re.split(r"[, ]+", row[specialColumnsN["name"]["coli"]])
-        else:
-            nameParts = [row[specialColumnsN["first name"]["coli"]], row[specialColumnsN["last name"]["coli"]]]
+            # Name
+            if haveName:
+                nameParts = re.split(r"[, ]+", row[specialColumnsN["name"]["coli"]])
+            else:
+                nameParts = [row[specialColumnsN["first name"]["coli"]], row[specialColumnsN["last name"]["coli"]]]
 
-        nameParts = [part.strip() for part in nameParts if part.strip() != ""]
+            nameParts = [part.strip() for part in nameParts if part.strip() != ""]
 
-        if haveName and nameOrderRev.get():
-            last = nameParts[0]
-            del nameParts[0]
-            nameParts.append(last)
+            if haveName and nameOrderRev.get():
+                last = nameParts[0]
+                del nameParts[0]
+                nameParts.append(last)
 
-        contestant["name"] = " ".join(nameParts)
+            contestant["name"] = " ".join(nameParts)
 
 
-        subcontest["contestants"].append(contestant)
+            subcontest["contestants"].append(contestant)
 
-    importoly.addContest(contest)
+    importoly.addContest(contest, bool(dryrunVal.get()))
 
 # interface
 root = tk.Tk()
@@ -378,8 +392,14 @@ openButton = tk.Button(toolbar, text="Open", command=openFile)
 openButton.pack(side='left')
 reloadButton = tk.Button(toolbar, text="Reload", command=reopenFile)
 reloadButton.pack(side='left')
+reloadTip = Hovertip(reloadButton, "reload last-opened csv file", 100)
 importButton = tk.Button(toolbar, text="Import", command=importTable)
 importButton.pack(side='left')
+
+dryrunVal = tk.IntVar()
+dryrunCheck = tk.Checkbutton(toolbar, text="dry run", variable=dryrunVal)
+dryrunCheck.pack(side='left')
+dryrunTip = Hovertip(dryrunCheck, "rollback the db after insertion", 100)
 
 # contest info
 contestInfo = tk.Frame(root)
@@ -457,29 +477,44 @@ def genPlacementAction(*_):
             total = specialColumnsN["total"]["coli"]
             highlightGrid()
 
-        # Calculate the placement
-        lastS = float("inf")
-        currPlace = 0
-        startPlace = 0
+        classi = specialColumnsN["class"]["coli"]
+        if splitClass.get():
+            subcontests = {row[classi].split(",")[0] for row in list(getGrid())[1:]}
+            print(subcontests)
+        else:
+            subcontests = [None]
+        for subc_class in subcontests:
+            # Calculate the placement
+            lastS = float("inf")
+            currPlace = 0
+            startPlace = 0
 
-        rows = iter(currentGrid)
-        # Skip the header
-        next(rows)
-        for row in rows:
-            s = float(row[total]["text"].replace(",", ".").replace('%',''))
-            currPlace += 1
-            if s < lastS:
-                row[placement].configure(text=str(currPlace))
-                lastS = s
-                startPlace = currPlace
-            else:
-                row[placement].configure(text=str(startPlace))
+            rows = iter(currentGrid)
+            # Skip the header
+            next(rows)
+            for row in rows:
+                if subc_class and row[classi]["text"] != subc_class and not row[classi]["text"].startswith(subc_class + ","):
+                    continue
+                s = float(row[total]["text"].replace(",", ".").replace('%',''))
+                currPlace += 1
+                if s < lastS:
+                    row[placement].configure(text=str(currPlace))
+                    lastS = s
+                    startPlace = currPlace
+                else:
+                    row[placement].configure(text=str(startPlace))
 genPlacementButton = tk.Button(editor, text='From "total"', command=genPlacementAction, background=specialColumnsN["placement"]["color"])
 genPlacementButton.grid(row=2, column=specialColumnsN["placement"]["ci"])
 
 nameOrderRev = tk.IntVar()
-nameOrderRevCheck = tk.Checkbutton(editor, text="Reversed name", variable=nameOrderRev)
+nameOrderRevCheck = tk.Checkbutton(editor, text="Reversed", variable=nameOrderRev)
 nameOrderRevCheck.grid(row=2, column=specialColumnsN["name"]["ci"])
+nameOrderTip = Hovertip(nameOrderRevCheck, "reverse name field\nmoves first word of name to the end", 100)
+
+splitClass = tk.IntVar()
+splitClassCheck = tk.Checkbutton(editor, text="split", variable=splitClass)
+splitClassCheck.grid(row=2, column=specialColumnsN["class"]["ci"])
+splitClassTip = Hovertip(splitClassCheck, "split into subcontests based on class\nuse $CLASS in subcontest params\nuse a,b in class to set age group=a, real class=b", 100)
 
 # grid
 gridWrapper = ScrollableFrame(root)
