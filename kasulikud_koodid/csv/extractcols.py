@@ -64,6 +64,7 @@ def dims(r):
 cols = []
 rowCount = 0
 prevs = ([], [])
+alignmode = "top"
 
 for p, img in zip(pages, images):
     print(p)
@@ -192,6 +193,14 @@ for p, img in zip(pages, images):
         elif key == ord('a'):
             altAddMode = not altAddMode
             currStart = None
+        elif key == ord('l'):
+            if alignmode == "top":
+                alignmode = "middle"
+            elif alignmode == "middle":
+                alignmode = "bottom"
+            elif alignmode == "bottom":
+                alignmode = "top"
+            print("Alignment mode set to", alignmode)
 
     prev = selectBoxes, removeBoxes
 
@@ -230,14 +239,42 @@ for p, img in zip(pages, images):
                         rc[ci] += 1
                         cols[ci].append(s)
                     else:
-                        while len(lineYs) > rc[ci] and lineYs[rc[ci]] < box[0][1] - 4:
+                        def getMatchingRowInd(thisY):
+                            # idbox = a box from lineYs, i.e. one of our "line-marker" boxes
+                            if alignmode == "top":
+                                for i, lineY in enumerate(lineYs):
+                                    # once we are completely past this box, return the previous one
+                                    if lineY - 3 > thisY:
+                                        return i-1
+                                # if we didn't get any then it's probably the last box
+                                return len(lineYs)-1
+                            elif alignmode == "bottom":
+                                for i, lineY in enumerate(lineYs):
+                                    # once this idbox's Y coord is past (or at) this box
+                                    if lineY >= thisY - 3:
+                                        return i
+                                # we shouldn't actually get here bc if they are really bottom-aligned then the very last line should have had an idbox too
+                                print("warning: bad box alignment")
+                                return len(lineYs)-1
+                            elif alignmode == "middle":
+                                # the idbox that is closest to this box
+                                return min(enumerate(lineYs), key=lambda a:abs(a[1] - thisY))[0]
+                        ind = getMatchingRowInd(box[0][1])
+                        # clamp to page
+                        if ind < 0: ind = 0
+                        #while len(lineYs) > rc[ci] and lineYs[rc[ci]] < box[0][1] - 4:
+                        while rc[ci] < ind:
                             # this box is too far down - there must have been blanks before
                             rc[ci] += 1
                             cols[ci].append("")
-                        if len(lineYs) > rc[ci] and box[0][1] < lineYs[rc[ci]] - 4:
-                            # this box is too far up - should be a part of the previous value
-                            cols[ci][-1] += '\n' + s
+                        #if len(lineYs) > rc[ci] and box[0][1] < lineYs[rc[ci]] - 4 and len(cols[ci]) > 0:
+                        if rc[ci] > ind:
+                            # correction bc cols has previous pages too
+                            real_ind = ind + (len(cols[ci]) - rc[ci])
+                            # this box is too far up (and there is a previous value) - should be a part of the previous value
+                            cols[ci][real_ind] += '\n' + s
                         else:
+                            # ind == rc[ci] -- append
                             rc[ci] += 1
                             cols[ci].append(s)
     rowCount += max(rc, default=0)
