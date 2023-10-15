@@ -213,6 +213,9 @@ Expects a dictionary containing:
 Additionally, whether to perform a "dry run" (rollback)
 """
 def addContest(contest, dryRun = False):
+    global row_cache, school_cache
+    old_rowcache = row_cache.copy()
+    old_schoolcache = school_cache.copy()
     try:
         # Get parameters
         typeId = getMakeRow('type', name = contest['type'])
@@ -232,13 +235,15 @@ def addContest(contest, dryRun = False):
         if dryRun:
             conn.rollback()
             info("Contest added (dry run)")
+            row_cache = old_rowcache
+            school_cache = old_schoolcache
         else:
             conn.commit()
             info("Contest added")
     except Exception as e:
         conn.rollback()
-        row_cache.clear()
-        school_cache.clear()
+        row_cache = old_rowcache
+        school_cache = old_schoolcache
         logging.exception(e)
         raise Exception()
 
