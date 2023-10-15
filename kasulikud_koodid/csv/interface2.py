@@ -243,13 +243,11 @@ def inferFields(filename):
     # Special case for the year
     year = findName(contestFields, "year")
     if not year["lock"].get():
-        m = re.search(r"(?:^|\D)(\d{4})\D(\d{2}(:?\d{2})?)(?:$|\D)", filename)
+        m = re.search(r"(\D|^)(\d{4})(\D|$)", filename)
         if m:
-            y1 = m.group(1)
-            y2 = m.group(2)
-            if str(int(y1) + 1).endswith(y2):
-                y2 = str(int(y1) + 1)
-                setEntry(year["entry"], f"{y1}")
+            y1 = m.group(2)
+            if int(y1) > 1900: # sanity check ig
+                setEntry(year["entry"], y1)
 
     # Columns
     for ci, name in enumerate(currentGrid[0]):
