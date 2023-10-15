@@ -293,6 +293,12 @@ def highlightGrid():
             for row in currentGrid:
                 row[sc["coli"]].configure(background=sc["color"])
 
+def substArithmetic(pattern, replacements):
+    # considered writing a bespoke templating engine
+    # but f-strings are good enough
+    fstring = 'f"""' + pattern + '"""'
+    return eval(fstring, {}, replacements)
+
 def importTable(*_):
     if any(field["entry"].get() == "" for field in contestFields if field["name"] != "description"):
         warn("Missing contest information")
@@ -320,6 +326,7 @@ def importTable(*_):
         for field in contestFields
         if field["name"] not in subcontestNames
     }
+    contest["name"] = substArithmetic(contest["name"], {'year': int(contest["year"])})
     subcontests = []
     contest['subcontests'] = []
     if splitClass.get():
@@ -333,9 +340,9 @@ def importTable(*_):
             for field in contestFields
             if field["name"] in subcontestNames
         }
-        subcontest["name"] = subcontest["subcontest_name"]
-        del subcontest["subcontest_name"]
         subcontest["class_range_name"], *subcontest["class_range"] = re.split(r"[ ,]", subcontest["class_range"])
+        subcontest["name"] = substArithmetic(subcontest["subcontest_name"], {'group': subcontest["class_range_name"]})
+        del subcontest["subcontest_name"]
         contest["subcontests"].append(subcontest)
 
         grid = getGrid()
