@@ -56,8 +56,8 @@ inferContest = {
         {"pattern": "12k", "value": "12,12,12"},
         {"pattern": "(^|[-_ ])g(ymn)?($|[-_.])", "value": "gümnaasium,10,12"},
         {"pattern": "(^|[-_ ])(pk?|pohikool)($|[-_.])", "value": "põhikool,8,9"},
-        {"pattern": "(^|[-_ ])v($|[-_.])", "value": "vanem,11,12"},
-        {"pattern": "(^|[-_ ])n($|[-_.])", "value": "noorem,9,10"},
+        {"pattern": "(^|[-_ ])v(anem)?($|[-_.])", "value": "vanem,11,12"},
+        {"pattern": "(^|[-_ ])n(oorem)?($|[-_.])", "value": "noorem,9,10"},
     ]
 }
 
@@ -319,52 +319,60 @@ def importTable(*_):
         warn("No name columns")
         return
 
-    contest = {
+    contestValues = {
         field["name"]: field["entry"].get()
         for field in contestFields
         if field["name"] not in subcontestNames
     }
-    contest["name"] = substArithmetic(contest["name"], {'year': int(contest["year"])})
-    subcontests = []
-    contest['subcontests'] = []
+    contest_name = substArithmetic(contestValues["name"], {'year': int(contestValues["year"])})
+    contest = importoly.Contest(int(contestValues["year"]),
+                                contestValues["subject"],
+                                contestValues["type"],  contest_name, [])
+    subcontest_classes = []
     if splitClass.get():
-        subcontests = {row[coli["class"]].split(",")[0] for row in list(getGrid())[1:]}
-        print(subcontests)
+        subcontest_classes = {row[coli["class"]].split(",")[0] for row in list(getGrid())[1:]}
+        print(subcontest_classes)
     else:
-        subcontests = [None]
-    for subc_class in subcontests:
-        subcontest = {
+        subcontest_classes = [None]
+    for subc_class in subcontest_classes:
+        subcontestValues = {
             field["name"]: field["entry"].get().replace("$CLASS", subc_class or "")
             for field in contestFields
             if field["name"] in subcontestNames
         }
-        subcontest["class_range_name"], *subcontest["class_range"] = re.split(r"[ ,]", subcontest["class_range"])
-        subcontest["name"] = substArithmetic(subcontest["subcontest_name"], {'group': subcontest["class_range_name"]})
-        del subcontest["subcontest_name"]
-        contest["subcontests"].append(subcontest)
+
+        class_range_name, *class_range = re.split(r"[ ,]", subcontestValues["class_range"])
+        class_range = (int(class_range[0]), int(class_range[1]))
+        subcontest_name = substArithmetic(subcontestValues["subcontest_name"], {'group': class_range_name})
 
         grid = getGrid()
         rows = iter(grid)
         header = next(rows)
-        subcontest["columns"] = [field for i,field in enumerate(header) if i not in sc or sc[i] == "total"]
-        subcontest["contestants"] = []
+        subcontest_columns = [field for i,field in enumerate(header) if i not in sc or sc[i] == "total"]
+        subcontest = importoly.Subcontest(subcontest_name,
+                class_range, class_range_name, subcontest_columns,
+                [], subcontestValues["description"])
         for row in rows:
-            contestant = {"fields": []}
+            cst_fields = []
             for ci, field in enumerate(row):
                 if ci not in sc or sc[ci] == "total":
-                    contestant["fields"].append(field.strip())
+                    cst_fields.append(field.strip())
 
-            contestant["instructors"] = ([] if coli["instructors"] is None else
+            instructors = ([] if coli["instructors"] is None else
                                          [x.strip() for x in re.split(r"[|,/]+", row[coli["instructors"]])
                                           if x.strip() != ""])
-            contestant["placement"] = re.sub(r"[. ]", "", row[coli["placement"]])
-            contestant["class"] = None if coli["class"] is None else row[coli["class"]].strip()
-            if subc_class and contestant["class"] != subc_class:
-                if contestant["class"].startswith(subc_class + ","):
-                    contestant["class"] = contestant["class"].removeprefix(subc_class + ",")
+            placement = re.sub(r"[. ]", "", row[coli["placement"]])
+            # fix tiebreaker notation like "3.-5."
+            placement = re.sub(r"-\d+", "", placement)
+            placement = int(placement) if placement else None
+            cst_class = None if coli["class"] is None else row[coli["class"]].strip()
+            if subc_class and cst_class != subc_class and cst_class:
+                if cst_class.startswith(subc_class + ","):
+                    cst_class = cst_class.removeprefix(subc_class + ",")
                 else:
                     continue
-            contestant["school"] = None if coli["school"] is None else row[coli["school"]].strip()
+            cst_class = int(cst_class) if cst_class else None
+            cst_school = None if coli["school"] is None else row[coli["school"]].strip()
 
             # Name
             if haveName:
@@ -379,11 +387,13 @@ def importTable(*_):
                 del nameParts[0]
                 nameParts.append(last)
 
-            contestant["name"] = " ".join(nameParts)
+            cst_name = " ".join(nameParts)
 
+            contestant = importoly.Contestant(cst_name, cst_class, instructors,
+                                              cst_school, placement, cst_fields)
 
-            subcontest["contestants"].append(contestant)
-
+            subcontest.contestants.append(contestant)
+        contest.subcontests.append(subcontest)
     importoly.addContest(contest, bool(dryrunVal.get()))
 
 # interface
