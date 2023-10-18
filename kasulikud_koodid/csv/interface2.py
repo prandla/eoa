@@ -1,36 +1,53 @@
 import tkinter as tk
-import tkinter.ttk as ttk
 from tkinter.filedialog import askopenfilename
 from tkinter import messagebox as tkmsg
 from idlelib.tooltip import Hovertip
 import re
 import csv
-import copy
 import logging
 import importoly
+from dataclasses import dataclass
+import dataclasses
 
-contestFields = [
-    {"name": "name", "display": "Contest name"},
-    {"name": "subject", "display": "Subject"},
-    {"name": "type", "display": "Type"},
-    {"name": "year", "display": "Year"},
-    {"name": "subcontest_name", "display": "Subcontest name"},
-    {"name": "class_range", "display": "Class range"},
-    {"name": "description", "display": "Description"},
-]
+# early to allow creating the IntVars inside ContestField
+root = tk.Tk()
+defaultColor = root.cget("bg")
 
-subcontestNames = {"subcontest_name", "class_range", "description"}
+@dataclass
+class ContestField:
+    displayname: str
+    isSubcontest: bool
+    allowEmpty: bool = False
+    tooltip: str | None = None
+    entry: tk.Entry = None
+    isLocked: tk.IntVar = dataclasses.field(default_factory=tk.IntVar)
 
-specialColumns = [
-    {"name": "placement", "color": "#dd3030"},
-    {"name": "name", "color": "#30dd30"},
-    {"name": "first name", "color": "#00aa00"},
-    {"name": "last name", "color": "#10aa90"},
-    {"name": "class", "color": "#7070dd"},
-    {"name": "school", "color": "#41a5fc"},
-    {"name": "instructors", "color": "#f78a2f"},
-    {"name": "total", "color": "#ffcc00"}
-]
+contestFields = {
+    "name": ContestField("Contest name", False),
+    "subject": ContestField("Subject", False),
+    "type": ContestField("Type", False),
+    "year": ContestField("Year", False),
+    "subcontest_name": ContestField("Subcontest name", True),
+    "class_range": ContestField("Class range", True, False, "Syntax: <name>,<min class>,<max class>"),
+    "description": ContestField("Description", True, True),
+}
+
+@dataclass
+class SpecialColumn:
+    color: str
+    coli: int | None = None
+    ci: int = 0
+
+specialColumnsN = {
+    "placement": SpecialColumn("#dd3030"),
+    "name": SpecialColumn("#30dd30"),
+    "first name": SpecialColumn("#00aa00"),
+    "last name": SpecialColumn("#10aa90"),
+    "class": SpecialColumn("#7070dd"),
+    "school": SpecialColumn("#41a5fc"),
+    "instructors": SpecialColumn("#f78a2f"),
+    "total": SpecialColumn("#ffcc00")
+}
 
 inferContest = {
     "subject": [
@@ -75,7 +92,7 @@ inferColumns = [
 deleteColumnColor = "#ffaaaa"
 
 
-def warn(text):
+def warn(text: str):
     logging.warning(text)
     tkmsg.showwarning(message=text)
 
@@ -102,13 +119,13 @@ class ScrollableFrame(tk.Frame):
         scrollbar.configure(command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=scrollbar.set)
 
-def setEntry(entry, value):
+def setEntry(entry: tk.Entry, value: str):
     entry.delete(0, tk.END)
     entry.insert(0, value)
 
 selectedField = None
 
-def selectField(ri, ci):
+def selectField(ri: int, ci: int):
     global selectedField
     if selectedField is not None:
         currentGrid[selectedField[0]][selectedField[1]].configure(font="sans 11")
@@ -116,7 +133,7 @@ def selectField(ri, ci):
     selectedField = (ri, ci)
     setEntry(editField, currentGrid[ri][ci]["text"])
 
-def fieldButton(ri, ci):
+def fieldButton(ri: int, ci: int):
     def action(*_):
         selectField(ri, ci)
     return action
@@ -134,10 +151,10 @@ def clearGrid(clearSpecial=True):
     selectedField = None
 
     if clearSpecial:
-        for sc in specialColumns:
-            sc["coli"] = None
+        for sc in specialColumnsN.values():
+            sc.coli = None
 
-def deleteColumnAction(ci):
+def deleteColumnAction(ci: int):
     def action(*_):
         # Delete the column
         grid = getGrid()
@@ -147,13 +164,13 @@ def deleteColumnAction(ci):
         setGrid(grid, False)
 
         # Update the special columns
-        for sc in specialColumns:
-            if sc["coli"] is None:
+        for sc in specialColumnsN.values():
+            if sc.coli is None:
                 pass
-            elif sc["coli"] == ci:
-                sc["coli"] = None
-            elif sc["coli"] > ci:
-                sc["coli"] -= 1
+            elif sc.coli == ci:
+                sc.coli = None
+            elif sc.coli > ci:
+                sc.coli -= 1
         highlightGrid()
 
     return action
@@ -161,7 +178,7 @@ def deleteColumnAction(ci):
 """
 Set the grid to a 2D list of values
 """
-def setGrid(grid, clearSpecial=True):
+def setGrid(grid: list[list[str]], clearSpecial=True):
     clearGrid(clearSpecial)
 
     if len(grid) == 0:
@@ -183,7 +200,7 @@ def setGrid(grid, clearSpecial=True):
 """
 Get the grid as a 2D list of values
 """
-def getGrid():
+def getGrid() -> list[list[str]]:
     grid = []
     for row in currentGrid:
         grid.append([])
@@ -221,43 +238,39 @@ def parseCSV(inFile):
 
     # import the data into the editor
     setGrid(newGrid)
-def findName(seq, name):
-    for field in seq:
-        if field["name"] == name:
-            return field
 
 """
 Infer the content of some fields based on the filename and column names
 """
-def inferFields(filename):
+def inferFields(filename: str):
     # Contest info
 
     for fieldName, patterns in inferContest.items():
-        field = findName(contestFields, fieldName)
-        if not field["lock"].get():
+        field = contestFields[fieldName]
+        if not field.isLocked.get():
             for pattern in patterns:
                 if re.search(pattern["pattern"], filename, re.IGNORECASE):
-                    setEntry(field["entry"], pattern["value"])
+                    setEntry(field.entry, pattern["value"])
                     break
 
     # Special case for the year
-    year = findName(contestFields, "year")
-    if not year["lock"].get():
+    year = contestFields["year"]
+    if not year.isLocked.get():
         m = re.search(r"(\D|^)(\d{4})(\D|$)", filename)
         if m:
             y1 = m.group(2)
             if int(y1) > 1900: # sanity check ig
-                setEntry(year["entry"], y1)
+                setEntry(year.entry, y1)
 
     # Columns
     for ci, name in enumerate(currentGrid[0]):
         for pattern in inferColumns:
             if re.match(pattern["pattern"], name["text"], re.IGNORECASE):
-                findName(specialColumns, pattern["value"])["coli"] = ci
+                specialColumnsN[pattern["value"]].coli = ci
                 break
     highlightGrid()
 
-lastOpenedFile = None
+lastOpenedFile: str = None
 """
 "Open file" action performed
 """
@@ -286,24 +299,25 @@ def highlightGrid():
         for field in row:
             field.configure(background=defaultColor)
 
-    for sc in specialColumns:
-        if sc["coli"] is not None:
+    for sc in specialColumnsN.values():
+        if sc.coli is not None:
             for row in currentGrid:
-                row[sc["coli"]].configure(background=sc["color"])
+                row[sc.coli].configure(background=sc.color)
 
-def substArithmetic(pattern, replacements):
+def substArithmetic(pattern: str, replacements: dict):
     # considered writing a bespoke templating engine
     # but f-strings are good enough
     fstring = 'f"""' + pattern + '"""'
     return eval(fstring, {}, replacements)
 
 def importTable(*_):
-    if any(field["entry"].get() == "" for field in contestFields if field["name"] != "description"):
+    if any(field.entry.get() == "" and not field.allowEmpty
+                for field in contestFields.values()):
         warn("Missing contest information")
         return
 
-    sc = {col["coli"]: col["name"] for col in specialColumns if col["coli"] is not None}
-    coli = {col["name"]: col["coli"] for col in specialColumns}
+    sc = {col.coli: cname for cname, col in specialColumnsN.items() if col.coli is not None}
+    coli = {cname: col.coli for cname, col in specialColumnsN.items()}
 
     if coli["placement"] is None:
         warn("Missing placement")
@@ -320,9 +334,9 @@ def importTable(*_):
         return
 
     contestValues = {
-        field["name"]: field["entry"].get()
-        for field in contestFields
-        if field["name"] not in subcontestNames
+        fname: field.entry.get()
+        for fname, field in contestFields.items()
+        if not field.isSubcontest
     }
     contest_name = substArithmetic(contestValues["name"], {'year': int(contestValues["year"])})
     contest = importoly.Contest(int(contestValues["year"]),
@@ -330,15 +344,18 @@ def importTable(*_):
                                 contestValues["type"],  contest_name, [])
     subcontest_classes = []
     if splitClass.get():
+        if coli["class"] is None:
+            warn("Need class column to split by class!")
+            return
         subcontest_classes = {row[coli["class"]].split(",")[0] for row in list(getGrid())[1:]}
         print(subcontest_classes)
     else:
         subcontest_classes = [None]
     for subc_class in subcontest_classes:
         subcontestValues = {
-            field["name"]: field["entry"].get().replace("$CLASS", subc_class or "")
-            for field in contestFields
-            if field["name"] in subcontestNames
+            fname: field.entry.get().replace("$CLASS", subc_class or "")
+            for fname, field in contestFields.items()
+            if field.isSubcontest
         }
 
         class_range_name, *class_range = re.split(r"[ ,]", subcontestValues["class_range"])
@@ -376,9 +393,9 @@ def importTable(*_):
 
             # Name
             if haveName:
-                nameParts = re.split(r"[, ]+", row[specialColumnsN["name"]["coli"]])
+                nameParts = re.split(r"[, ]+", row[coli["name"]]) # type: ignore
             else:
-                nameParts = [row[specialColumnsN["first name"]["coli"]], row[specialColumnsN["last name"]["coli"]]]
+                nameParts = [row[coli["first name"]], row[coli["last name"]]] # type: ignore
 
             nameParts = [part.strip() for part in nameParts if part.strip() != ""]
 
@@ -395,10 +412,6 @@ def importTable(*_):
             subcontest.contestants.append(contestant)
         contest.subcontests.append(subcontest)
     importoly.addContest(contest, bool(dryrunVal.get()))
-
-# interface
-root = tk.Tk()
-defaultColor = root.cget("bg")
 
 # toolbar
 toolbar = tk.Frame(root)
@@ -420,14 +433,14 @@ dryrunTip = Hovertip(dryrunCheck, "rollback the db after insertion", 100)
 contestInfo = tk.Frame(root)
 contestInfo.pack(fill=tk.X, after=toolbar)
 
-for ci, cf in enumerate(contestFields):
-    tk.Label(contestInfo, text=cf["display"]).grid(row=0, column=ci)
-    e = tk.Entry(contestInfo)
-    e.grid(row=1, column=ci)
-    cf["entry"] = e
-    l = tk.IntVar()
-    cf["lock"] = l
-    ch = tk.Checkbutton(contestInfo, text="Lock", variable=l)
+for ci, cf in enumerate(contestFields.values()):
+    tk.Label(contestInfo, text=cf.displayname).grid(row=0, column=ci)
+    cf.entry = tk.Entry(contestInfo)
+    cf.entry.grid(row=1, column=ci)
+    if cf.tooltip is not None:
+        Hovertip(cf.entry, cf.tooltip, 100)
+    # wait you don't need to keep around these in a variable??
+    ch = tk.Checkbutton(contestInfo, text="Lock", variable=cf.isLocked)
     ch.grid(row=2, column=ci)
 
 # editor
@@ -443,34 +456,32 @@ def applyEdit(*_):
 
 editField.bind("<Return>", applyEdit)
 
-specialColumnsN = {sc["name"]: sc for sc in specialColumns}
-
-for ci, sc in enumerate(specialColumns, 1):
-    sc["coli"] = None
-    sc["ci"] = ci
+for ci, (scName, sc) in enumerate(specialColumnsN.items(), 1):
+    sc.coli = None
+    sc.ci = ci
     def createAction(sc):
         def action(*_):
             if selectedField is not None:
-                sc["coli"] = selectedField[1]
+                sc.coli = selectedField[1]
                 highlightGrid()
         return action
 
     def clearAction(sc):
         def action(*_):
-            sc["coli"] = None
+            sc.coli = None
             highlightGrid()
         return action
 
-    b = tk.Button(editor, text=f'Set "{sc["name"]}"', command=createAction(sc), background=sc["color"])
+    b = tk.Button(editor, text=f'Set "{scName}"', command=createAction(sc), background=sc.color)
     b.grid(row=0, column=ci)
-    b2 = tk.Button(editor, text=f'Clear', command=clearAction(sc), background=sc["color"])
+    b2 = tk.Button(editor, text=f'Clear', command=clearAction(sc), background=sc.color)
     b2.grid(row=1, column=ci)
 
 # Extra widgets
 def genPlacementAction(*_):
-    total = specialColumnsN["total"]["coli"]
+    total = specialColumnsN["total"].coli
     if total is not None:
-        placement = specialColumnsN["placement"]["coli"]
+        placement = specialColumnsN["placement"].coli
         if placement is None:
             # Create the placement column
             grid = getGrid()
@@ -483,17 +494,21 @@ def genPlacementAction(*_):
             setGrid(grid, False)
 
             # Increment the indices
-            for sc in specialColumns:
-                if sc["coli"] is not None:
-                    sc["coli"] += 1
+            for sc in specialColumnsN.values():
+                if sc.coli is not None:
+                    sc.coli += 1
 
-            specialColumnsN["placement"]["coli"] = 0
+            specialColumnsN["placement"].coli = 0
             placement = 0
-            total = specialColumnsN["total"]["coli"]
+            total = specialColumnsN["total"].coli
+            assert total is not None # pyright pls
             highlightGrid()
 
-        classi = specialColumnsN["class"]["coli"]
+        classi = specialColumnsN["class"].coli
         if splitClass.get():
+            if classi is None:
+                warn("Need a class column to split by class!")
+                return
             subcontests = {row[classi].split(",")[0] for row in list(getGrid())[1:]}
             print(subcontests)
         else:
@@ -518,17 +533,17 @@ def genPlacementAction(*_):
                     startPlace = currPlace
                 else:
                     row[placement].configure(text=str(startPlace))
-genPlacementButton = tk.Button(editor, text='From "total"', command=genPlacementAction, background=specialColumnsN["placement"]["color"])
-genPlacementButton.grid(row=2, column=specialColumnsN["placement"]["ci"])
+genPlacementButton = tk.Button(editor, text='From "total"', command=genPlacementAction, background=specialColumnsN["placement"].color)
+genPlacementButton.grid(row=2, column=specialColumnsN["placement"].ci)
 
 nameOrderRev = tk.IntVar()
 nameOrderRevCheck = tk.Checkbutton(editor, text="Reversed", variable=nameOrderRev)
-nameOrderRevCheck.grid(row=2, column=specialColumnsN["name"]["ci"])
+nameOrderRevCheck.grid(row=2, column=specialColumnsN["name"].ci)
 nameOrderTip = Hovertip(nameOrderRevCheck, "reverse name field\nmoves first word of name to the end", 100)
 
 splitClass = tk.IntVar()
 splitClassCheck = tk.Checkbutton(editor, text="split", variable=splitClass)
-splitClassCheck.grid(row=2, column=specialColumnsN["class"]["ci"])
+splitClassCheck.grid(row=2, column=specialColumnsN["class"].ci)
 splitClassTip = Hovertip(splitClassCheck, "split into subcontests based on class\nuse $CLASS in subcontest params\nuse a,b in class to set age group=a, real class=b", 100)
 
 # grid
@@ -539,8 +554,8 @@ gridScrollY = tk.Scrollbar(root, orient=tk.VERTICAL)
 gridScrollY.pack(fill=tk.Y, side=tk.RIGHT)
 gridWrapper.setYScrollbar(gridScrollY)
 
-currentGrid = []
-gridHeader = []
+currentGrid: list[list[tk.Button]] = []
+gridHeader: list[tk.Button] = []
 
 openFile()
 tk.mainloop()
